@@ -185,4 +185,36 @@ if uploaded_files:
             
             row_dict = {col: "" for col in columns_list}
             row_dict["J"], row_dict["K"], row_dict["L"] = p_info["division"], p_info["sto"], p_info["prefix_code"]
-            row_dict["O"], row_dict["P"], row_dict["U"] = p_info["fcl_20"], p_info["fcl_40"], c_no if c_no != "UNKNOWN"
+            
+            # FIXED: Syntax structural logic clean alignment
+            row_dict["O"], row_dict["P"] = p_info["fcl_20"], p_info["fcl_40"]
+            row_dict["U"] = c_no if c_no != "UNKNOWN" else ""
+            
+            row_dict["Z"], row_dict["AA"], row_dict["AB"] = c_info["line_seal"], c_info["ot_seal"], c_info["gst_inv"]
+            row_dict["AC"], row_dict["AD"], row_dict["AE"] = p_info["other_ref"], p_info["date"], inv_no
+            row_dict["AF"], row_dict["AG"], row_dict["AH"] = p_info["date"], c_cert["bags"], c_cert["pkg_type"]
+            row_dict["AI"] = f"{c_cert['gross_wt']:.3f}" if c_cert['gross_wt'] != "" else ""
+            row_dict["AJ"] = f"{c_cert['net_wt']:.3f}" if c_cert['net_wt'] != "" else ""
+            row_dict["AK"], row_dict["AN"], row_dict["AX"], row_dict["AZ"] = p_info["port"], p_info["consignee"], p_info["bank"], p_info["hsn"]
+            
+            for k, v in row_dict.items():
+                if v != "": used_columns.add(k)
+            final_rows.append(row_dict)
+
+    if final_rows:
+        df = pd.DataFrame(final_rows, columns=columns_list)
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Sheet1')
+            worksheet = writer.sheets['Sheet1']
+            for idx, col_name in enumerate(columns_list, start=1):
+                if col_name not in used_columns:
+                    worksheet.column_dimensions[worksheet.cell(row=1, column=idx).column_letter].hidden = True
+                    
+        st.success("🎉 Process Completed Flawlessly!")
+        st.download_button(
+            label="📥 Download Final Excel File",
+            data=excel_buffer.getvalue(),
+            file_name="Reliance_Invoice_Data_Compiled.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
