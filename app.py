@@ -194,4 +194,83 @@ if uploaded_files:
             for r in temp_rows:
                 key_c = r["c_no"]
                 if key_c not in cert_data:
-                    cert_data[key_c] = {"bags": 0
+                    cert_data[key_c] = {"bags": 0, "gross_wt": 0.0, "net_wt": 0.0, "pkg_type": matched_pkg}
+                cert_data[key_c]["bags"] += r["bags"]
+                cert_data[key_c]["gross_wt"] += r["gross"]
+                cert_data[key_c]["net_wt"] += r["net"]
+
+    # --- SECTION 3: EXCEL GENERATION ---
+    columns_list = [chr(65 + i) for i in range(26)] + ["A" + chr(65 + i) for i in range(26)]
+    final_rows = []
+    used_columns = set()
+
+    for inv_no, p_info in proforma_data.items():
+        if len(p_info["containers"]) >= 1:
+            containers_to_process = p_info["containers"]
+        else:
+            containers_to_process = [{"container_no": "UNKNOWN", "ot_seal": "", "line_seal": "", "gst_inv": ""}]
+        
+        for idx, c_info in enumerate(containers_to_process):
+            c_no = c_info["container_no"]
+            c_cert = cert_data.get(c_no, cert_data.get(p_info["single_c_fallback"], {"bags": "", "pkg_type": "", "gross_wt": "", "net_wt": ""}))
+            
+            row_dict = {col: "" for col in columns_list}
+            row_dict["J"] = p_info["division"]
+            row_dict["K"] = p_info["sto"]
+            row_dict["L"] = p_info["prefix_code"]
+            row_dict["O"] = p_info["fcl_20"]
+            row_dict["P"] = p_info["fcl_40"]
+            
+            if c_no != "UNKNOWN":
+                row_dict["U"] = c_no
+            else:
+                row_dict["U"] = ""
+            
+            row_dict["Z"] = c_info["line_seal"]
+            row_dict["AA"] = c_info["ot_seal"]
+            row_dict["AB"] = c_info["gst_inv"]
+            row_dict["AC"] = p_info["other_ref"]
+            row_dict["AD"] = p_info["date"]
+            row_dict["AE"] = inv_no
+            row_dict["AF"] = p_info["date"]
+            row_dict["AG"] = c_cert["bags"]
+            row_dict["AH"] = c_cert["pkg_type"]
+            
+            if c_cert["gross_wt"] != "":
+                row_dict["AI"] = f"{c_cert['gross_wt']:.3f}"
+            else:
+                row_dict["AI"] = ""
+                
+            if c_cert["net_wt"] != "":
+                row_dict["AJ"] = f"{c_cert['net_wt']:.3f}"
+            else:
+                row_dict["AJ"] = ""
+                
+            row_dict["AK"] = p_info["port"]
+            row_dict["AN"] = p_info["consignee"]
+            row_dict["AX"] = p_info["bank"]
+            row_dict["AZ"] = p_info["hsn"]
+            
+            for k, v in row_dict.items():
+                if v != "":
+                    used_columns.add(k)
+            final_rows.append(row_dict)
+
+    if final_rows:
+        df = pd.DataFrame(final_rows, columns=columns_list)
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Sheet1')
+            worksheet = writer.sheets['Sheet1']
+            for idx, col_name in enumerate(columns_list, start=1):
+                if col_name not in used_columns:
+                    col_letter = worksheet.cell(row=1, column=idx).column_letter
+                    worksheet.column_dimensions[col_letter].hidden = True
+                    
+        st.success("🎉 Process Completed Flawlessly!")
+        st.download_button(
+            label="📥 Download Final Excel File",
+            data=excel_buffer.getvalue(),
+            file_name="Reliance_Invoice_Data_Compiled.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
