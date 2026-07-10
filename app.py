@@ -95,11 +95,9 @@ if uploaded_files:
                 file_details["bank"] = "THE HONGKONG AND SHANGHAI BANKING" if "THE HONGKONG AND SHANGHAI BANKING" in b_name.upper() else b_name
             else: file_details["bank"] = ""
             
-            # FIXED AK COLUMN: Explicitly truncating extra headings if they attach next to port names
             port_m = re.search(r'Port of Discharge\s+([A-Za-z\s\-,\/]+?)(?=\s*Final|\s*AD|\s*Division|$)', pdf_text_clean)
             if port_m:
                 raw_port = port_m.group(1).strip()
-                # Remove trailing noise dynamically using regex cut-off markers
                 raw_port = re.split(r'(?i)Place of Receipt|Port of Loading|Country of Origin', raw_port)[0].strip()
                 file_details["port"] = raw_port
             else:
@@ -156,4 +154,35 @@ if uploaded_files:
                             
                             bags_val = int(bags_raw)
                             gross_final = float("".join(gross_raw.split('.')[:-1]) + "." + gross_raw.split('.')[-1]) if gross_raw.count('.') > 1 else float(gross_raw.replace(',', ''))
-                            net_final = float("".join(net_raw.split('.')
+                            net_final = float("".join(net_raw.split('.')[:-1]) + "." + net_raw.split('.')[-1]) if net_raw.count('.') > 1 else float(net_raw.replace(',', ''))
+                            
+                            if not is_kg_unit:
+                                gross_final *= 1000
+                                net_final *= 1000
+                                
+                            temp_rows.append({"c_no": c_no, "bags": bags_val, "gross": gross_final, "net": net_final})
+                        except: pass
+
+            for r in temp_rows:
+                key_c = r["c_no"]
+                if key_c not in cert_data:
+                    cert_data[key_c] = {"bags": 0, "gross_wt": 0.0, "net_wt": 0.0, "pkg_type": matched_pkg}
+                cert_data[key_c]["bags"] += r["bags"]
+                cert_data[key_c]["gross_wt"] += r["gross"]
+                cert_data[key_c]["net_wt"] += r["net"]
+
+    # --- SECTION 3: EXCEL GENERATION ---
+    columns_list = [chr(65 + i) for i in range(26)] + ["A" + chr(65 + i) for i in range(26)]
+    final_rows = []
+    used_columns = set()
+
+    for inv_no, p_info in proforma_data.items():
+        containers_to_process = p_info["containers"] if len(p_info["containers"]) >= 1 else [{"container_no": "UNKNOWN", "ot_seal": "", "line_seal": "", "gst_inv": ""}]
+        
+        for idx, c_info in enumerate(containers_to_process):
+            c_no = c_info["container_no"]
+            c_cert = cert_data.get(c_no, cert_data.get(p_info["single_c_fallback"], {"bags": "", "pkg_type": "", "gross_wt": "", "net_wt": ""}))
+            
+            row_dict = {col: "" for col in columns_list}
+            row_dict["J"], row_dict["K"], row_dict["L"] = p_info["division"], p_info["sto"], p_info["prefix_code"]
+            row_dict["O"], row_dict["P"], row_dict["U"] = p_info["fcl_20"], p_info["fcl_40"], c_no if c_no != "UNKNOWN"
