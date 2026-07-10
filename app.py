@@ -91,4 +91,20 @@ if uploaded_files:
                 
             bank_m = re.search(r'Negotiating Bank\s*:\s*([A-Za-z\s\d\.,]+?)(?=\s*Port|\s*AD|$)', pdf_text_clean)
             if bank_m:
-                b_name = bank_m.group(1
+                b_name = bank_m.group(1).strip()
+                file_details["bank"] = "THE HONGKONG AND SHANGHAI BANKING" if "THE HONGKONG AND SHANGHAI BANKING" in b_name.upper() else b_name
+            else: file_details["bank"] = ""
+            
+            port_m = re.search(r'Port of Discharge\s+([A-Za-z\s\-,\/]+?)(?=\s*Final|\s*AD|\s*Division|$)', pdf_text_clean)
+            if port_m:
+                raw_port = port_m.group(1).strip()
+                raw_port = re.split(r'(?i)Place of Receipt|Port of Loading|Country of Origin', raw_port)[0].strip()
+                file_details["port"] = raw_port
+            else:
+                file_details["port"] = ""
+            
+            ref_m = re.search(r'REF NO\.(PC/\d{4})', pdf_text_clean)
+            if ref_m: file_details["other_ref"] = ref_m.group(1).strip()
+            else:
+                ref_alt = re.search(r'REF NO\.([A-Z]{2}/\d+)', pdf_text_clean)
+                file
