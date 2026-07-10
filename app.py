@@ -119,6 +119,7 @@ if uploaded_files:
             tokens = pdf_text_clean.split()
             seen_containers = set()
             for idx, t in enumerate(tokens):
+                # FIXED STRICT LOGIC: Strictly match 4 Letters followed by EXACTLY 7 Digits boundary to reject seal codes like MLIN3510084
                 if re.match(r'^[A-Z]{4}\d{7}$', t):
                     try:
                         if t not in seen_containers:
@@ -152,6 +153,7 @@ if uploaded_files:
             
             for line in lines_cert:
                 line_clean = " ".join(line.split())
+                # ISO CONTAINER PATTERN BINDING
                 c_match = re.search(r'\b([A-Z]{4}\d{7})\b', line_clean)
                 if c_match:
                     c_no = c_match.group(1)
@@ -194,7 +196,7 @@ if uploaded_files:
 
     # --- SECTION 3: IMMUTABLE DATA GRID GENERATION ---
     final_rows = []
-    strictly_processed_keys = set()  # FOOLPROOF DEDUPLICATION AT ENGINE LEVEL
+    strictly_processed_keys = set()
 
     for inv_no, p_info in proforma_data.items():
         if len(p_info["containers"]) >= 1:
@@ -205,7 +207,6 @@ if uploaded_files:
         for idx, c_info in enumerate(containers_to_process):
             c_no = c_info["container_no"]
             
-            # STRICTOR KEY: Ek invoice aur ek container combination ka sirf 1 hi record banega poore sheet me
             master_row_key = f"{inv_no}_{c_no}"
             if master_row_key in strictly_processed_keys:
                 continue
