@@ -198,10 +198,11 @@ if uploaded_files:
                 cert_data[key_c]["gross_wt"] += r["gross"]
                 cert_data[key_c]["net_wt"] += r["net"]
 
-    # --- SECTION 3: EXCEL GENERATION ---
+    # --- SECTION 3: EXCEL GENERATION (CLEAN & NON-CRASHING MATRIX) ---
     columns_list = [chr(65 + i) for i in range(26)] + ["A" + chr(65 + i) for i in range(26)]
     final_rows = []
     used_columns = set()
+    global_seen_rows = set() # Unique dynamic matrix key preventer
 
     for inv_no, p_info in proforma_data.items():
         if len(p_info["containers"]) >= 1:
@@ -211,6 +212,13 @@ if uploaded_files:
         
         for idx, c_info in enumerate(containers_to_process):
             c_no = c_info["container_no"]
+            
+            # Master Level Dynamic De-duplication check
+            unique_key = f"{inv_no}_{c_no}"
+            if unique_key in global_seen_rows:
+                continue
+            global_seen_rows.add(unique_key)
+            
             c_cert = cert_data.get(c_no, cert_data.get(p_info["single_c_fallback"], {"bags": "", "pkg_type": "", "gross_wt": "", "net_wt": ""}))
             
             row_dict = {col: "" for col in columns_list}
@@ -219,12 +227,7 @@ if uploaded_files:
             row_dict["L"] = p_info["prefix_code"]
             row_dict["O"] = p_info["fcl_20"]
             row_dict["P"] = p_info["fcl_40"]
-            
-            if c_no != "UNKNOWN":
-                row_dict["U"] = c_no
-            else:
-                row_dict["U"] = ""
-            
+            row_dict["U"] = c_no if c_no != "UNKNOWN" else ""
             row_dict["Z"] = c_info["line_seal"]
             row_dict["AA"] = c_info["ot_seal"]
             row_dict["AB"] = c_info["gst_inv"]
@@ -237,13 +240,8 @@ if uploaded_files:
             
             if c_cert["gross_wt"] != "":
                 row_dict["AI"] = f"{c_cert['gross_wt']:.3f}"
-            else:
-                row_dict["AI"] = ""
-                
             if c_cert["net_wt"] != "":
                 row_dict["AJ"] = f"{c_cert['net_wt']:.3f}"
-            else:
-                row_dict["AJ"] = ""
                 
             row_dict["AK"] = p_info["port"]
             row_dict["AN"] = p_info["consignee"]
@@ -256,14 +254,14 @@ if uploaded_files:
             final_rows.append(row_dict)
 
     if final_rows:
-        # STRICT FINAL DATAFRAME CLEANING (Duplicates removal at panda matrix level)
-        df_raw = pd.DataFrame(final_rows, columns=columns_list)
-        df = df_raw.drop_duplicates(subset=["AE", "U"], keep="first")
-        
+        df = pd.DataFrame(final_rows, columns=columns_list)
         excel_buffer = io.BytesIO()
+        
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Sheet1')
             worksheet = writer.sheets['Sheet1']
+            
+            # Lightweight optimized loop to prevent Streamlit memory overload crash
             for idx, col_name in enumerate(columns_list, start=1):
                 if col_name not in used_columns:
                     col_letter = worksheet.cell(row=1, column=idx).column_letter
