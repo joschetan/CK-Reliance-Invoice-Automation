@@ -16,7 +16,6 @@ st.markdown("""
 st.markdown('<h1 class="main-title">CK Reliance Invoice Automation</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">Reliance Proforma & Plant Certificate Data Extractor Tool</p>', unsafe_allow_html=True)
 
-# Strict Standard Import Mechanism
 import pypdf
 
 uploaded_files = st.file_uploader("📂 Saari PDF Files Ek Sath Select Ya Drop Karein (Ctrl+A)", type="pdf", accept_multiple_files=True)
@@ -40,7 +39,8 @@ if uploaded_files:
         file_content = file.read()
         
         inv_match = re.search(r'([A-Z0-9]{10})', file_name)
-        if not inv_match: continue
+        if not inv_match:
+            continue
         inv_no = inv_match.group(1)
         
         pdf_text = ""
@@ -48,7 +48,8 @@ if uploaded_files:
             reader = pypdf.PdfReader(io.BytesIO(file_content))
             for page in reader.pages:
                 text = page.extract_text()
-                if text: pdf_text += text + "\n"
+                if text:
+                    pdf_text += text + "\n"
         except Exception as e:
             st.error(f"Error reading file {file_name}: {str(e)}")
             continue
@@ -66,10 +67,13 @@ if uploaded_files:
                 
             div_m = re.search(r'Division\s+([A-Za-z\s]+)', pdf_text_clean)
             file_details["division"] = div_m.group(1).strip()[:3].upper() if div_m else ""
+            
             sto_m = re.search(r'Stock Transfer Order\s+(\d{9})', pdf_text_clean)
             file_details["sto"] = sto_m.group(1) if sto_m else ""
+            
             date_m = re.search(r'Invoice No\. & Date\.\s+[A-Z0-9]+\s+(\d{2}\.\d{2}\.\d{4})', pdf_text_clean)
             file_details["date"] = date_m.group(1).replace('.', '/') if date_m else ""
+            
             hsn_m = re.search(r'HSN\.\s*(\d{4}\s*\d{2}\s*\d{2})', pdf_text_clean)
             file_details["hsn"] = hsn_m.group(1).strip() if hsn_m else ""
             
@@ -78,7 +82,8 @@ if uploaded_files:
             for idx, line in enumerate(lines):
                 if "Consignee" in line:
                     test_line = line.replace("Consignee", "").strip()
-                    if test_line: consignee_name = test_line
+                    if test_line:
+                        consignee_name = test_line
                     else:
                         for next_line in lines[idx+1:]:
                             if next_line.strip() and "Reliance" not in next_line:
@@ -90,8 +95,12 @@ if uploaded_files:
             bank_m = re.search(r'Negotiating Bank\s*:\s*([A-Za-z\s\d\.,]+?)(?=\s*Port|\s*AD|$)', pdf_text_clean)
             if bank_m:
                 b_name = bank_m.group(1).strip()
-                file_details["bank"] = "THE HONGKONG AND SHANGHAI BANKING" if "THE HONGKONG AND SHANGHAI BANKING" in b_name.upper() else b_name
-            else: file_details["bank"] = ""
+                if "THE HONGKONG AND SHANGHAI BANKING" in b_name.upper():
+                    file_details["bank"] = "THE HONGKONG AND SHANGHAI BANKING"
+                else:
+                    file_details["bank"] = b_name
+            else:
+                file_details["bank"] = ""
             
             port_m = re.search(r'Port of Discharge\s+([A-Za-z\s\-,\/]+?)(?=\s*Final|\s*AD|\s*Division|$)', pdf_text_clean)
             if port_m:
@@ -102,7 +111,8 @@ if uploaded_files:
                 file_details["port"] = ""
             
             ref_m = re.search(r'REF NO\.(PC/\d{4})', pdf_text_clean)
-            if ref_m: file_details["other_ref"] = ref_m.group(1).strip()
+            if ref_m:
+                file_details["other_ref"] = ref_m.group(1).strip()
             else:
                 ref_alt = re.search(r'REF NO\.([A-Z]{2}/\d+)', pdf_text_clean)
                 file_details["other_ref"] = ref_alt.group(1).strip() if ref_alt else ""
@@ -118,9 +128,13 @@ if uploaded_files:
                         if t not in seen_containers:
                             seen_containers.add(t)
                             file_details["containers"].append({
-                                "container_no": t, "ot_seal": tokens[idx+1], "line_seal": tokens[idx+2], "gst_inv": tokens[idx+4]
+                                "container_no": t,
+                                "ot_seal": tokens[idx+1],
+                                "line_seal": tokens[idx+2],
+                                "gst_inv": tokens[idx+4]
                             })
-                    except: pass
+                    except:
+                        pass
             
             if file_details["containers"]:
                 file_details["single_c_fallback"] = file_details["containers"][0]["container_no"]
@@ -133,7 +147,8 @@ if uploaded_files:
             for p_type in pkg_types_list:
                 if p_type in pdf_text_clean.upper():
                     matched_pkg = p_type
-                    if p_type == "PALLETISED BULK UNIT": matched_pkg = "Palletised bulk unit"
+                    if p_type == "PALLETISED BULK UNIT":
+                        matched_pkg = "Palletised bulk unit"
                     break
             
             lines_cert = pdf_text.split('\n')
@@ -154,4 +169,29 @@ if uploaded_files:
                             bags_raw = metrics[-3]
                             
                             bags_val = int(bags_raw)
-                            gross_final = float("".join(gross
+                            
+                            # Cleaned dynamic decimal float converter logic without line split
+                            if gross_raw.count('.') > 1:
+                                gross_clean_str = "".join(gross_raw.split('.')[:-1]) + "." + gross_raw.split('.')[-1]
+                                gross_final = float(gross_clean_str)
+                            else:
+                                gross_final = float(gross_raw.replace(',', ''))
+                                
+                            if net_raw.count('.') > 1:
+                                net_clean_str = "".join(net_raw.split('.')[:-1]) + "." + net_raw.split('.')[-1]
+                                net_final = float(net_clean_str)
+                            else:
+                                net_final = float(net_raw.replace(',', ''))
+                            
+                            if not is_kg_unit:
+                                gross_final *= 1000
+                                net_final *= 1000
+                                
+                            temp_rows.append({"c_no": c_no, "bags": bags_val, "gross": gross_final, "net": net_final})
+                        except:
+                            pass
+
+            for r in temp_rows:
+                key_c = r["c_no"]
+                if key_c not in cert_data:
+                    cert_data[key_c] = {"bags": 0
