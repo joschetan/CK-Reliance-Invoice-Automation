@@ -16,12 +16,8 @@ st.markdown("""
 st.markdown('<h1 class="main-title">CK Reliance Invoice Automation</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">Reliance Proforma & Plant Certificate Data Extractor Tool</p>', unsafe_allow_html=True)
 
-try:
-    import pypdf
-except ImportError:
-    import os
-    os.system('pip install pypdf openpyxl')
-    import pypdf
+# Strict Standard Import Mechanism
+import pypdf
 
 uploaded_files = st.file_uploader("📂 Saari PDF Files Ek Sath Select Ya Drop Karein (Ctrl+A)", type="pdf", accept_multiple_files=True)
 
@@ -53,7 +49,9 @@ if uploaded_files:
             for page in reader.pages:
                 text = page.extract_text()
                 if text: pdf_text += text + "\n"
-        except: continue
+        except Exception as e:
+            st.error(f"Error reading file {file_name}: {str(e)}")
+            continue
             
         pdf_text_clean = " ".join(pdf_text.split())
 
@@ -86,7 +84,7 @@ if uploaded_files:
                             if next_line.strip() and "Reliance" not in next_line:
                                 consignee_name = next_line.strip()
                                 break
-                    break
+                        break
             file_details["consignee"] = consignee_name
                 
             bank_m = re.search(r'Negotiating Bank\s*:\s*([A-Za-z\s\d\.,]+?)(?=\s*Port|\s*AD|$)', pdf_text_clean)
@@ -107,4 +105,53 @@ if uploaded_files:
             if ref_m: file_details["other_ref"] = ref_m.group(1).strip()
             else:
                 ref_alt = re.search(r'REF NO\.([A-Z]{2}/\d+)', pdf_text_clean)
-                file
+                file_details["other_ref"] = ref_alt.group(1).strip() if ref_alt else ""
+            
+            file_details["fcl_20"] = 1 if "20'FCL" in pdf_text_clean or "2 * 20'" in pdf_text_clean else ""
+            file_details["fcl_40"] = 1 if "40'FCL" in pdf_text_clean or "1*40'FCL" in pdf_text_clean or "2 * 40'" in pdf_text_clean else ""
+            
+            tokens = pdf_text_clean.split()
+            seen_containers = set()
+            for idx, t in enumerate(tokens):
+                if re.match(r'^[A-Z]{4}\d{7}$', t):
+                    try:
+                        if t not in seen_containers:
+                            seen_containers.add(t)
+                            file_details["containers"].append({
+                                "container_no": t, "ot_seal": tokens[idx+1], "line_seal": tokens[idx+2], "gst_inv": tokens[idx+4]
+                            })
+                    except: pass
+            
+            if file_details["containers"]:
+                file_details["single_c_fallback"] = file_details["containers"][0]["container_no"]
+            proforma_data[inv_no] = file_details
+
+        # --- SECTION 2: PLANT CERTIFICATE PROCESSING ---
+        elif "_plant_certificate" in file_name.lower():
+            is_kg_unit = "WT. (KG)" in pdf_text_clean.upper() or "WT.(KG)" in pdf_text_clean.upper()
+            matched_pkg = "BAGS"
+            for p_type in pkg_types_list:
+                if p_type in pdf_text_clean.upper():
+                    matched_pkg = p_type
+                    if p_type == "PALLETISED BULK UNIT": matched_pkg = "Palletised bulk unit"
+                    break
+            
+            lines_cert = pdf_text.split('\n')
+            temp_rows = []
+            
+            for line in lines_cert:
+                line_clean = " ".join(line.split())
+                c_match = re.search(r'\b([A-Z]{4}\d{7})\b', line_clean)
+                if c_match:
+                    c_no = c_match.group(1)
+                    num_segments = line_clean.split(c_no)[1].strip().split()
+                    metrics = [s for s in num_segments if re.match(r'^[\d,\.]+$', s)]
+                    
+                    if len(metrics) >= 3:
+                        try:
+                            net_raw = metrics[-1]
+                            gross_raw = metrics[-2]
+                            bags_raw = metrics[-3]
+                            
+                            bags_val = int(bags_raw)
+                            gross_final = float("".join(gross
