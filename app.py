@@ -95,8 +95,15 @@ if uploaded_files:
                 file_details["bank"] = "THE HONGKONG AND SHANGHAI BANKING" if "THE HONGKONG AND SHANGHAI BANKING" in b_name.upper() else b_name
             else: file_details["bank"] = ""
             
+            # FIXED AK COLUMN: Explicitly truncating extra headings if they attach next to port names
             port_m = re.search(r'Port of Discharge\s+([A-Za-z\s\-,\/]+?)(?=\s*Final|\s*AD|\s*Division|$)', pdf_text_clean)
-            file_details["port"] = port_m.group(1).strip() if port_m else ""
+            if port_m:
+                raw_port = port_m.group(1).strip()
+                # Remove trailing noise dynamically using regex cut-off markers
+                raw_port = re.split(r'(?i)Place of Receipt|Port of Loading|Country of Origin', raw_port)[0].strip()
+                file_details["port"] = raw_port
+            else:
+                file_details["port"] = ""
             
             ref_m = re.search(r'REF NO\.(PC/\d{4})', pdf_text_clean)
             if ref_m: file_details["other_ref"] = ref_m.group(1).strip()
@@ -120,7 +127,7 @@ if uploaded_files:
                 file_details["single_c_fallback"] = file_details["containers"][0]["container_no"]
             proforma_data[inv_no] = file_details
 
-        # --- SECTION 2: PLANT CERTIFICATE PROCESSING (FIXED SCANNING LOGIC) ---
+        # --- SECTION 2: PLANT CERTIFICATE PROCESSING ---
         elif "_plant_certificate" in file_name.lower():
             is_kg_unit = "WT. (KG)" in pdf_text_clean.upper() or "WT.(KG)" in pdf_text_clean.upper()
             matched_pkg = "BAGS"
@@ -130,90 +137,23 @@ if uploaded_files:
                     if p_type == "PALLETISED BULK UNIT": matched_pkg = "Palletised bulk unit"
                     break
             
-            # Line by line processing targeting exact container metrics
             lines_cert = pdf_text.split('\n')
             temp_rows = []
             
             for line in lines_cert:
                 line_clean = " ".join(line.split())
-                # Scans row starting with Container pattern
                 c_match = re.search(r'\b([A-Z]{4}\d{7})\b', line_clean)
                 if c_match:
                     c_no = c_match.group(1)
-                    # Extract all numerical blocks after the container number
                     num_segments = line_clean.split(c_no)[1].strip().split()
-                    
-                    # Target fields filtration skipping arbitrary batch spaces
                     metrics = [s for s in num_segments if re.match(r'^[\d,\.]+$', s)]
                     
                     if len(metrics) >= 3:
                         try:
-                            # Last two fields are always Net and Gross weights
                             net_raw = metrics[-1]
                             gross_raw = metrics[-2]
-                            # The item immediately preceding weights is always the Bags volume count
                             bags_raw = metrics[-3]
                             
                             bags_val = int(bags_raw)
                             gross_final = float("".join(gross_raw.split('.')[:-1]) + "." + gross_raw.split('.')[-1]) if gross_raw.count('.') > 1 else float(gross_raw.replace(',', ''))
-                            net_final = float("".join(net_raw.split('.')[:-1]) + "." + net_raw.split('.')[-1]) if net_raw.count('.') > 1 else float(net_raw.replace(',', ''))
-                            
-                            if not is_kg_unit:
-                                gross_final *= 1000
-                                net_final *= 1000
-                                
-                            temp_rows.append({"c_no": c_no, "bags": bags_val, "gross": gross_final, "net": net_final})
-                        except: pass
-
-            # Safe Aggregation Math logic block
-            for r in temp_rows:
-                key_c = r["c_no"]
-                if key_c not in cert_data:
-                    cert_data[key_c] = {"bags": 0, "gross_wt": 0.0, "net_wt": 0.0, "pkg_type": matched_pkg}
-                cert_data[key_c]["bags"] += r["bags"]
-                cert_data[key_c]["gross_wt"] += r["gross"]
-                cert_data[key_c]["net_wt"] += r["net"]
-
-    # --- SECTION 3: EXCEL GENERATION ---
-    columns_list = [chr(65 + i) for i in range(26)] + ["A" + chr(65 + i) for i in range(26)]
-    final_rows = []
-    used_columns = set()
-
-    for inv_no, p_info in proforma_data.items():
-        containers_to_process = p_info["containers"] if len(p_info["containers"]) >= 1 else [{"container_no": "UNKNOWN", "ot_seal": "", "line_seal": "", "gst_inv": ""}]
-        
-        for idx, c_info in enumerate(containers_to_process):
-            c_no = c_info["container_no"]
-            c_cert = cert_data.get(c_no, cert_data.get(p_info["single_c_fallback"], {"bags": "", "pkg_type": "", "gross_wt": "", "net_wt": ""}))
-            
-            row_dict = {col: "" for col in columns_list}
-            row_dict["J"], row_dict["K"], row_dict["L"] = p_info["division"], p_info["sto"], p_info["prefix_code"]
-            row_dict["O"], row_dict["P"], row_dict["U"] = p_info["fcl_20"], p_info["fcl_40"], c_no if c_no != "UNKNOWN" else ""
-            row_dict["Z"], row_dict["AA"], row_dict["AB"] = c_info["line_seal"], c_info["ot_seal"], c_info["gst_inv"]
-            row_dict["AC"], row_dict["AD"], row_dict["AE"] = p_info["other_ref"], p_info["date"], inv_no
-            row_dict["AF"], row_dict["AG"], row_dict["AH"] = p_info["date"], c_cert["bags"], c_cert["pkg_type"]
-            row_dict["AI"] = f"{c_cert['gross_wt']:.3f}" if c_cert['gross_wt'] != "" else ""
-            row_dict["AJ"] = f"{c_cert['net_wt']:.3f}" if c_cert['net_wt'] != "" else ""
-            row_dict["AK"], row_dict["AN"], row_dict["AX"], row_dict["AZ"] = p_info["port"], p_info["consignee"], p_info["bank"], p_info["hsn"]
-            
-            for k, v in row_dict.items():
-                if v != "": used_columns.add(k)
-            final_rows.append(row_dict)
-
-    if final_rows:
-        df = pd.DataFrame(final_rows, columns=columns_list)
-        excel_buffer = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Sheet1')
-            worksheet = writer.sheets['Sheet1']
-            for idx, col_name in enumerate(columns_list, start=1):
-                if col_name not in used_columns:
-                    worksheet.column_dimensions[worksheet.cell(row=1, column=idx).column_letter].hidden = True
-                    
-        st.success("🎉 Process Completed Flawlessly!")
-        st.download_button(
-            label="📥 Download Final Excel File",
-            data=excel_buffer.getvalue(),
-            file_name="Reliance_Invoice_Data_Compiled.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+                            net_final = float("".join(net_raw.split('.')
