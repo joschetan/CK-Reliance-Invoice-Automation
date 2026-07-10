@@ -194,22 +194,14 @@ if uploaded_files:
 
     # --- SECTION 3: IMMUTABLE DATA GRID GENERATION ---
     final_rows = []
-    global_seen_keys = set()
 
     for inv_no, p_info in proforma_data.items():
         containers_to_process = p_info["containers"] if len(p_info["containers"]) >= 1 else [{"container_no": "UNKNOWN", "ot_seal": "", "line_seal": "", "gst_inv": ""}]
         
         for idx, c_info in enumerate(containers_to_process):
             c_no = c_info["container_no"]
-            
-            unique_key = f"{inv_no}_{c_no}"
-            if unique_key in global_seen_keys:
-                continue
-            global_seen_keys.add(unique_key)
-            
             c_cert = cert_data.get(c_no, cert_data.get(p_info["single_c_fallback"], {"bags": "", "pkg_type": "", "gross_wt": "", "net_wt": ""}))
             
-            # FIXED LINE: Parenthesis syntax error completely resolved here
             row_dict = {
                 "J": p_info["division"],
                 "K": p_info["sto"],
@@ -234,6 +226,10 @@ if uploaded_files:
                 "AZ": p_info["hsn"]
             }
             final_rows.append(row_dict)
+            
+            # STRICTOR STOPPER: Agar Proforma me 1 hi container tha, toh pehli entry ke baad yahin loop tod do!
+            if len(containers_to_process) == 1:
+                break
 
     if final_rows:
         df = pd.DataFrame(final_rows)
