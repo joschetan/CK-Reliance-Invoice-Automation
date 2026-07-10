@@ -119,8 +119,8 @@ if uploaded_files:
             tokens = pdf_text_clean.split()
             seen_containers = set()
             for idx, t in enumerate(tokens):
-                # FIXED STRICT LOGIC: Strictly match 4 Letters followed by EXACTLY 7 Digits boundary to reject seal codes like MLIN3510084
-                if re.match(r'^[A-Z]{4}\d{7}$', t):
+                # FIXED DYNAMIC FILTER: 3 Alphabets + Strict 'U' Alphabet + Exactly 7 Digits Matrix Lock
+                if re.match(r'^[A-Z]{3}U\d{7}$', t):
                     try:
                         if t not in seen_containers:
                             seen_containers.add(t)
@@ -153,8 +153,8 @@ if uploaded_files:
             
             for line in lines_cert:
                 line_clean = " ".join(line.split())
-                # ISO CONTAINER PATTERN BINDING
-                c_match = re.search(r'\b([A-Z]{4}\d{7})\b', line_clean)
+                # ISO CONTAINER 'U' FIXED REGEX BOUNDARY MATCH
+                c_match = re.search(r'\b([A-Z]{3}U\d{7})\b', line_clean)
                 if c_match:
                     c_no = c_match.group(1)
                     num_segments = line_clean.split(c_no)[1].strip().split()
