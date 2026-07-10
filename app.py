@@ -120,7 +120,7 @@ if uploaded_files:
                 file_details["single_c_fallback"] = file_details["containers"][0]["container_no"]
             proforma_data[inv_no] = file_details
 
-        # --- SECTION 2: PLANT CERTIFICATE PROCESSING ---
+        # --- SECTION 2: PLANT CERTIFICATE PROCESSING (FIXED SCANNING LOGIC) ---
         elif "_plant_certificate" in file_name.lower():
             is_kg_unit = "WT. (KG)" in pdf_text_clean.upper() or "WT.(KG)" in pdf_text_clean.upper()
             matched_pkg = "BAGS"
@@ -130,36 +130,42 @@ if uploaded_files:
                     if p_type == "PALLETISED BULK UNIT": matched_pkg = "Palletised bulk unit"
                     break
             
-            tokens = pdf_text_clean.split()
+            # Line by line processing targeting exact container metrics
+            lines_cert = pdf_text.split('\n')
             temp_rows = []
             
-            for idx, t in enumerate(tokens):
-                if re.match(r'^[A-Z]{4}\d{7}$', t):
-                    try:
-                        # FIXED: Token jumping verification using lookahead matrix positioning
-                        # Structural shift handling to avoid grabbing Batch No columns
-                        bags_raw = tokens[idx+2]
-                        gross_raw = tokens[idx+3]
-                        net_raw = tokens[idx+4]
-                        
-                        # In case Batch No contains alphanumeric patterns (e.g. HZ5), indices shift right by 1
-                        if not bags_raw.isdigit():
-                            bags_raw = tokens[idx+3]
-                            gross_raw = tokens[idx+4]
-                            net_raw = tokens[idx+5]
+            for line in lines_cert:
+                line_clean = " ".join(line.split())
+                # Scans row starting with Container pattern
+                c_match = re.search(r'\b([A-Z]{4}\d{7})\b', line_clean)
+                if c_match:
+                    c_no = c_match.group(1)
+                    # Extract all numerical blocks after the container number
+                    num_segments = line_clean.split(c_no)[1].strip().split()
+                    
+                    # Target fields filtration skipping arbitrary batch spaces
+                    metrics = [s for s in num_segments if re.match(r'^[\d,\.]+$', s)]
+                    
+                    if len(metrics) >= 3:
+                        try:
+                            # Last two fields are always Net and Gross weights
+                            net_raw = metrics[-1]
+                            gross_raw = metrics[-2]
+                            # The item immediately preceding weights is always the Bags volume count
+                            bags_raw = metrics[-3]
                             
-                        bags_val = int(bags_raw)
-                        gross_final = float("".join(gross_raw.split('.')[:-1]) + "." + gross_raw.split('.')[-1]) if gross_raw.count('.') > 1 else float(gross_raw.replace(',', ''))
-                        net_final = float("".join(net_raw.split('.')[:-1]) + "." + net_raw.split('.')[-1]) if net_raw.count('.') > 1 else float(net_raw.replace(',', ''))
-                        
-                        if not is_kg_unit:
-                            gross_final *= 1000
-                            net_final *= 1000
+                            bags_val = int(bags_raw)
+                            gross_final = float("".join(gross_raw.split('.')[:-1]) + "." + gross_raw.split('.')[-1]) if gross_raw.count('.') > 1 else float(gross_raw.replace(',', ''))
+                            net_final = float("".join(net_raw.split('.')[:-1]) + "." + net_raw.split('.')[-1]) if net_raw.count('.') > 1 else float(net_raw.replace(',', ''))
                             
-                        temp_rows.append({"c_no": t, "bags": bags_val, "gross": gross_final, "net": net_final})
-                    except: pass
-            
-            # Grouping math validation
+                            if not is_kg_unit:
+                                gross_final *= 1000
+                                net_final *= 1000
+                                
+                            temp_rows.append({"c_no": c_no, "bags": bags_val, "gross": gross_final, "net": net_final})
+                        except: pass
+
+            # Safe Aggregation Math logic block
             for r in temp_rows:
                 key_c = r["c_no"]
                 if key_c not in cert_data:
@@ -178,7 +184,7 @@ if uploaded_files:
         
         for idx, c_info in enumerate(containers_to_process):
             c_no = c_info["container_no"]
-            c_cert = cert_data.get(c_no, cert_data.get("FALLBACK", cert_data.get(p_info["single_c_fallback"], {"bags": "", "pkg_type": "", "gross_wt": "", "net_wt": ""})))
+            c_cert = cert_data.get(c_no, cert_data.get(p_info["single_c_fallback"], {"bags": "", "pkg_type": "", "gross_wt": "", "net_wt": ""}))
             
             row_dict = {col: "" for col in columns_list}
             row_dict["J"], row_dict["K"], row_dict["L"] = p_info["division"], p_info["sto"], p_info["prefix_code"]
@@ -204,7 +210,7 @@ if uploaded_files:
                 if col_name not in used_columns:
                     worksheet.column_dimensions[worksheet.cell(row=1, column=idx).column_letter].hidden = True
                     
-        st.success("🎉 Process Completed without freezing matrices!")
+        st.success("🎉 Process Completed Flawlessly!")
         st.download_button(
             label="📥 Download Final Excel File",
             data=excel_buffer.getvalue(),
