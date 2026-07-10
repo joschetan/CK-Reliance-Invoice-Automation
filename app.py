@@ -194,12 +194,23 @@ if uploaded_files:
 
     # --- SECTION 3: IMMUTABLE DATA GRID GENERATION ---
     final_rows = []
+    strictly_processed_keys = set()  # FOOLPROOF DEDUPLICATION AT ENGINE LEVEL
 
     for inv_no, p_info in proforma_data.items():
-        containers_to_process = p_info["containers"] if len(p_info["containers"]) >= 1 else [{"container_no": "UNKNOWN", "ot_seal": "", "line_seal": "", "gst_inv": ""}]
+        if len(p_info["containers"]) >= 1:
+            containers_to_process = p_info["containers"]
+        else:
+            containers_to_process = [{"container_no": "UNKNOWN", "ot_seal": "", "line_seal": "", "gst_inv": ""}]
         
         for idx, c_info in enumerate(containers_to_process):
             c_no = c_info["container_no"]
+            
+            # STRICTOR KEY: Ek invoice aur ek container combination ka sirf 1 hi record banega poore sheet me
+            master_row_key = f"{inv_no}_{c_no}"
+            if master_row_key in strictly_processed_keys:
+                continue
+            strictly_processed_keys.add(master_row_key)
+            
             c_cert = cert_data.get(c_no, cert_data.get(p_info["single_c_fallback"], {"bags": "", "pkg_type": "", "gross_wt": "", "net_wt": ""}))
             
             row_dict = {
@@ -228,11 +239,9 @@ if uploaded_files:
             final_rows.append(row_dict)
 
     if final_rows:
-        # STRICT FINAL REMOVAL: Generate DataFrame and drop completely based on Unique Invoice + Container Key
-        df_raw = pd.DataFrame(final_rows)
-        df = df_raw.drop_duplicates(subset=["AE", "U"], keep="first")
-        
+        df = pd.DataFrame(final_rows)
         excel_buffer = io.BytesIO()
+        
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Sheet1')
             
