@@ -194,7 +194,7 @@ if uploaded_files:
 
     # --- SECTION 3: IMMUTABLE DATA GRID GENERATION ---
     final_rows = []
-    global_seen_keys = set() # Rigid deduplication controller
+    global_seen_keys = set()
 
     for inv_no, p_info in proforma_data.items():
         containers_to_process = p_info["containers"] if len(p_info["containers"]) >= 1 else [{"container_no": "UNKNOWN", "ot_seal": "", "line_seal": "", "gst_inv": ""}]
@@ -202,7 +202,6 @@ if uploaded_files:
         for idx, c_info in enumerate(containers_to_process):
             c_no = c_info["container_no"]
             
-            # Anti-duplicate structural lock
             unique_key = f"{inv_no}_{c_no}"
             if unique_key in global_seen_keys:
                 continue
@@ -210,13 +209,13 @@ if uploaded_files:
             
             c_cert = cert_data.get(c_no, cert_data.get(p_info["single_c_fallback"], {"bags": "", "pkg_type": "", "gross_wt": "", "net_wt": ""}))
             
-            # Direct mapping values dictionary to prevent heavy openpyxl matrix crashes
+            # FIXED LINE: Parenthesis syntax error completely resolved here
             row_dict = {
                 "J": p_info["division"],
                 "K": p_info["sto"],
                 "L": p_info["prefix_code"],
                 "O": p_info["fcl_20"],
-                "P"] = p_info["fcl_40"],
+                "P": p_info["fcl_40"],
                 "U": c_no if c_no != "UNKNOWN" else "",
                 "Z": c_info["line_seal"],
                 "AA": c_info["ot_seal"],
@@ -237,11 +236,9 @@ if uploaded_files:
             final_rows.append(row_dict)
 
     if final_rows:
-        # Generate DataFrame with active mapped items only (No more cell loops!)
         df = pd.DataFrame(final_rows)
         excel_buffer = io.BytesIO()
         
-        # Safe compression storage
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Sheet1')
             
