@@ -170,7 +170,6 @@ if uploaded_files:
                             
                             bags_val = int(bags_raw)
                             
-                            # Cleaned dynamic decimal float converter logic without line split
                             if gross_raw.count('.') > 1:
                                 gross_clean_str = "".join(gross_raw.split('.')[:-1]) + "." + gross_raw.split('.')[-1]
                                 gross_final = float(gross_clean_str)
@@ -257,7 +256,10 @@ if uploaded_files:
             final_rows.append(row_dict)
 
     if final_rows:
-        df = pd.DataFrame(final_rows, columns=columns_list)
+        # STRICT FINAL DATAFRAME CLEANING (Duplicates removal at panda matrix level)
+        df_raw = pd.DataFrame(final_rows, columns=columns_list)
+        df = df_raw.drop_duplicates(subset=["AE", "U"], keep="first")
+        
         excel_buffer = io.BytesIO()
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Sheet1')
